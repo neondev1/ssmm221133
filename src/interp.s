@@ -62,50 +62,35 @@ decode:
 
 	mov	r1,		r2
 	shr	$0xc,		r2		# r2 = opcode
-	shl	$0x3,		r2		# r2 = 8 * opcode
-	ld	$break,		r6
-	gpc	$0x4,		r0
-	add	r2,		r0		# calculate jump destination
-	j	(r0)
-
-	j	ld_imm				# 0
-	nop
-	j	ld				# 1
-	nop
-	j	ld_i				# 2
-	nop
-	j	st				# 3
-	nop
-	j	st_i				# 4
-	nop
-	.long	0xf0f0f0f0			# 5
-	.long	0xf0f0f0f0
-	j	alu				# 6
-	nop
-	j	sh				# 7
-	nop
-	j	br				# 8
-	nop
-	j	beq				# 9
-	nop
-	j	bgt				# a
-	nop
-	j	jmp				# b
-	nop
-	j	j_ind				# c
-	nop
-	j	j_d				# d
-	nop
-	j	j_d_i				# e
-	nop
-	j	sys				# f
-
-break:
+	ld	$jump_table,	r0
+	gpc	$0x2,		r6
+	j	*(r0,r2,4)
 	ld	(r5),		r6
 	inca	r5
 	j	(r6)
 
 
+
+.pos	0x1f00
+halt:
+	halt			# for bad jumps
+jump_table:
+	.long	ld_imm		# 0
+	.long	ld		# 1
+	.long	ld_i		# 2
+	.long	st		# 3
+	.long	st_i		# 4
+	.long	halt		# 5 (unused)
+	.long	alu		# 6
+	.long	sh		# 7
+	.long	br		# 8
+	.long	beq		# 9
+	.long	bgt		# a
+	.long	jmp		# b
+	.long	j_ind		# c
+	.long	j_dbl		# d
+	.long	j_dbl_i		# e
+	.long	sys		# f
 
 .pos	0x1fd0
 stack_bottom:
@@ -125,4 +110,3 @@ r7:	.long	0x00000000
 
 .pos	0x2000
 vmem:	.long	0x00000000
-
