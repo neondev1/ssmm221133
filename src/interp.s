@@ -49,29 +49,15 @@ fetched:
 	and	r2,		r1		# clean up junk in upper 2 bytes of r1
 	st	r0,		(r4)		# store pc
 
-	gpc	$0x6,		r6
-	j	decode
-	br	loop
-
-	ld	(r5),		r6
-	inca	r5
-	j	(r6)				# return, this will probably never happen
-
-
-
-# Decode and execute the instruction, given the opcode in r1
-decode:
-	deca	r5
-	st	r6,		(r5)
-
 	mov	r1,		r2
 	shr	$0xc,		r2		# r2 = opcode
 	ld	$jump_table,	r0
 	gpc	$0x2,		r6
 	j	*(r0,r2,4)
+
 	ld	(r5),		r6
 	inca	r5
-	j	(r6)
+	j	(r6)				# return, this will probably never happen
 
 
 
