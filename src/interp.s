@@ -1,6 +1,6 @@
 # SM213 machine code interpreter
 
-# For all procedures, assume that r0, r1, r2, r7 will be clobbered
+# For all procedures, assume that r0-r4 will be clobbered
 
 .pos	0x0100
 start:
@@ -15,15 +15,14 @@ main:
 	deca	r5
 	st	r6,		(r5)
 
-	ld	$vmem,		r3
-	ld	$pc,		r4
 loop:
-	ld	(r4),		r0		# r0 = pc
-	mov	r0,		r1
+	ld	$pc,		r0
+	ld	(r0),		r7		# r7 = pc
+	mov	r7,		r1
 	shr	$0x1f,		r1		# r1 = high bit of pc (0 or 0b1...1)
 	beq	r1,		safe		# if unset, no chance of overflow
-	mov	r0,		r1
-	add	r3,		r1		# r1 = actual instruction address
+	ld	$mem,		r1
+	add	r7,		r1		# r1 = actual instruction address
 	mov	r1,		r2
 	not	r2
 	inc	r2				# r2 = -address
@@ -35,19 +34,20 @@ safe:
 	bgt	r2,		pad		# if not 4-byte-aligned, pad
 	ld	(r1),		r1		# load instruction into upper 2 bytes of r1
 	shr	$0x10,		r1		# extract upper 2 bytes
-	inc	r0
-	inc	r0
+	inc	r7
+	inc	r7
 	br	fetched
 pad:
 	dec	r1
 	dec	r1
 	ld	(r1),		r1		# load instruction into lower 2 bytes of r1
-	inc	r0
-	inc	r0
+	inc	r7
+	inc	r7
 fetched:
 	ld	$0xffff,	r2
 	and	r2,		r1		# clean up junk in upper 2 bytes of r1
-	st	r0,		(r4)		# store pc
+	ld	$pc,		r0
+	st	r7,		(r0)		# store pc
 
 	mov	r1,		r2
 	shr	$0xc,		r2		# r2 = opcode
