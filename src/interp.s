@@ -16,7 +16,7 @@ main:
 	deca	r5
 	st	r6,		(r5)
 
-loop:
+main__loop:
 	ld	$pc,		r7
 	ld	(r7),		r0		# r0 = pc
 	mov	r0,		r1
@@ -28,7 +28,7 @@ loop:
 	bgt	r1,		safe		# if address high bit set, no overflow
 	beq	r1,		safe
 	halt					# if overflow, halt
-safe:
+main__safe:
 	ld	$mem,		r1
 	add	r0,		r1		# r1 = actual instruction address
 	ld	$0x2,		r2
@@ -39,7 +39,7 @@ safe:
 	inc	r0
 	inc	r0
 	br	fetched
-pad:
+main__pad:
 	dec	r1
 	dec	r1
 	ld	(r1),		r2		# load instruction into lower 2 bytes of r2
@@ -49,7 +49,7 @@ pad:
 	st	r3,		(r4)		# store in a global for now
 	inc	r0
 	inc	r0
-fetched:
+main__fetched:
 	ld	$0xffff,	r1
 	and	r1,		r2		# clean up junk in upper 2 bytes of r2
 	st	r0,		(r7)		# store pc
@@ -58,7 +58,7 @@ fetched:
 	shr	$0xc,		r1		# r1 = opcode
 
 	deca	r5
-	st	r2,		(r5)
+	st	r2,		(r5)		# pass instruction
 	ld	$table,		r0
 	gpc	$0x2,		r6
 	j	*(r0,r2,4)			# call procedure for specific opcode
@@ -92,7 +92,7 @@ load_ext:
 	ld	$0xffff,	r2
 	and	r2,		r4		# next 2 bytes
 	add	r4,		r3		# add instead of bitwise or is fine here
-aligned:
+load_ext__aligned:
 	inca	r0				# update pc
 	st	r0,		(r7)
 	mov	r3,		r0		# return all 4 bytes
@@ -103,19 +103,41 @@ aligned:
 # Load immediate
 # 0d--vvvvvvvv			ld	$v,		rd
 ld_imm:
+	deca	r5
+	st	r6,		(r5)
+
+	gpc	$0x6,		r6
+	j	load_ext			# load ins_op_ext into r0
+
+	ld	$regs,		r1
+	ld	0x4(r5),	r2		# load instruction into r2
+	shr	$0x8,		r2		# r2 = d (destination register #)
+	st	r0,		(r1,r2,4)	# store ins_op_ext into rd
+
+	ld	(r5),		r6
+	inca	r5
+	j	(r6)
 
 
 
 # Load base+offset
 # 1psd	(p=o>>2)		ld	o(rs),		rd
 ld:
+	ld	(r5),		r0		# load instruction into r0
+	mov	r0,		r1
+	mov	r0,		r2
 
+
+
+# Load indexed
+# 2sid				ld	(rs,ri,4),	rd
+ld_i:
 
 
 
 .pos	0x1f00
 stack_bottom:
-	.long	0x0
+	.long	0x00000000
 halt:
 	halt			# for bad jumps
 table:
