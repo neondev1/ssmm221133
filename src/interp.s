@@ -42,9 +42,8 @@ main__safe:
 main__pad:
 	dec	r1
 	dec	r1
-	ld	(r1),		r2		# load instruction into lower 2 bytes of r2
-	inca	r1
-	ld	(r1),		r3		# load ins_op_ext as it is convenient here
+	ld	0x0(r1),	r2		# load instruction into lower 2 bytes of r2
+	ld	0x4(r1),	r3		# load ins_op_ext as it is convenient here
 	ld	$op_ext,	r4
 	st	r3,		(r4)		# store in a global for now
 	inc	r0
@@ -72,15 +71,35 @@ main__fetched:
 
 
 
-# Load the last 4 bytes of a 6-byte instruction and return it in r0; increment pc
-load_ext:
+# Get the last 3 nibbles of a 2-byte instruction and store them in op_0, op_1, op_2,
+# given the full instruction as an argument
+get_op:
+	ld	(r5),		r0
+	mov	r0,		r1
+	mov	r0,		r2
+	ld	$0xf,		r3
+	shr	$0x8,		r0
+	shr	$0x4,		r1
+	and	r3,		r0
+	and	r3,		r1
+	and	r3,		r2
+	ld	$op_0,		r3
+	st	r0,		(r3)
+	ld	$op_1,		r3
+	st	r1,		(r3)
+	ld	$op_2,		r3
+	st	r2,		(r3)
+	j	(r6)
+
+
+
+# Get the last 4 bytes of a 6-byte instruction and store it in op_ext
+get_op_ext:
 	ld	$pc,		r7
 	ld	(r7),		r0
 	ld	$0x2,		r2
 	and	r0,		r2		# r2 = pc & 0b...10
-	ld	$op_ext,	r3
-	ld	(r3),		r3
-	beq	r2,		aligned		# if 4-byte-aligned, already loaded
+	beq	r2,		aligned		# if 4-byte-aligned, already stored
 	ld	$mem,		r1
 	add	r0,		r1		# r1 = instruction address
 	dec	r1
@@ -92,10 +111,11 @@ load_ext:
 	ld	$0xffff,	r2
 	and	r2,		r4		# next 2 bytes
 	add	r4,		r3		# add instead of bitwise or is fine here
-load_ext__aligned:
+	ld	$op_ext,	r2
+	st	r3,		(r2)		# store in op_ext
+get_op_ext__aligned:
 	inca	r0				# update pc
 	st	r0,		(r7)
-	mov	r3,		r0		# return all 4 bytes
 	j	(r6)
 
 
@@ -107,8 +127,10 @@ ld_imm:
 	st	r6,		(r5)
 
 	gpc	$0x6,		r6
-	j	load_ext			# load ins_op_ext into r0
+	j	get_ext				# set up op_ext
 
+	ld	$op_ext,	r0
+	ld	(r0),		r0
 	ld	$regs,		r1
 	ld	0x4(r5),	r2		# load instruction into r2
 	shr	$0x8,		r2		# r2 = d (destination register #)
@@ -160,6 +182,10 @@ table:
 
 .pos	0x1fd0
 pc:	.long	0x00000000
+op_0:	.long	0x00000000
+op_1:	.long	0x00000000
+op_2:	.long	0x00000000
+op_imm:	.long	0x00000000
 op_ext:	.long	0x00000000
 
 .pos	0x1fe0
