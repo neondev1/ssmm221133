@@ -18,21 +18,16 @@ main:
 
 main__loop:
 	ld	$pc,		r7
-	ld	(r7),		r0		# r0 = pc
-	mov	r0,		r1
-	shr	$0x1f,		r1		# r1 = high bit of pc (0 or 0b1...1)
-	beq	r1,		safe		# if unset, no chance of overflow
-	ld	$mem,		r1
-	add	r0,		r1		# r1 = actual instruction address
-	not	r1				# r1 = ~address
-	bgt	r1,		safe		# if address high bit set, no overflow
-	beq	r1,		safe
-	halt					# if overflow, halt
-main__safe:
-	ld	$mem,		r1
-	add	r0,		r1		# r1 = actual instruction address
+	ld	(r7),		r7
+	mov	r7,		r0		# r0 = pc
+
+	gpc	$0x6,		r6
+	j	to_addr				# r0 = actual instruction address
+
+	mov	r0,		r1		# r1 = actual instruction address
+	mov	r7,		r0		# r0 = pc
 	ld	$0x2,		r2
-	and	r1,		r2		# r2 = address & 0b...10
+	and	r0,		r2		# r2 = pc & 0b...10
 	bgt	r2,		pad		# if not 4-byte-aligned, pad
 	ld	(r1),		r2		# load instruction into upper 2 bytes of r2
 	shr	$0x10,		r2		# extract upper 2 bytes
@@ -60,7 +55,7 @@ main__fetched:
 	st	r2,		(r5)		# pass instruction
 	ld	$table,		r0
 	gpc	$0x2,		r6
-	j	*(r0,r2,4)			# call procedure for specific opcode
+	j	*(r0,r1,4)			# call procedure for specific opcode
 	inca	r5
 
 	br	loop
@@ -71,8 +66,26 @@ main__fetched:
 
 
 
-# Get the last 3 nibbles of a 2-byte instruction and store them in op_0, op_1, op_2,
-# given the full instruction as an argument
+# Attempt to add $vmem to the supplied virtual address in r0 and return the sum in r0;
+# halt if this results in an overflow
+to_addr:
+	mov	r0,		r1
+	shr	$0x1f,		r1		# extend sign bit, discard other bits
+	ld	$vmem,		r2
+	add	r2,		r0
+	beq	r1,		to_addr__safe	# if unset, no chance of overflow
+	mov	r0,		r1
+	not	r1				# invert address
+	bgt	r1,		to_addr__safe	# if original high bit set, no overflow
+	beq	r1,		to_addr__safe
+	halt					# halt if overflow occurred
+to_addr__safe:
+	j	(r6)
+
+
+
+# Get the last 3 nibbles of a 2-byte instruction and store the last two in op_1, op_2,
+# given the full instruction as an argument; returns the first nibble read in r0
 get_op:
 	ld	(r5),		r0
 	mov	r0,		r1
@@ -83,12 +96,26 @@ get_op:
 	and	r3,		r0
 	and	r3,		r1
 	and	r3,		r2
-	ld	$op_0,		r3
-	st	r0,		(r3)
 	ld	$op_1,		r3
 	st	r1,		(r3)
 	ld	$op_2,		r3
 	st	r2,		(r3)
+	j	(r6)
+
+
+
+# Get the second nibble and last byte of a 2-byte instruction and store the bytr in op_imm,
+# given the full instruction as an argument; returns the nibble in r0
+get_op_imm:
+	ld	(r5),		r0
+	mov	r0,		r1
+	ld	$0xff,		r2
+	shr	$0x1,		r0
+	and	r2,		r0
+	shr	$0x1,		r0
+	and	r2,		r1
+	ld	$op_imm,	r2
+	st	r1,		(r2)
 	j	(r6)
 
 
@@ -145,15 +172,61 @@ ld_imm:
 # Load base+offset
 # 1psd	(p=o>>2)		ld	o(rs),		rd
 ld:
-	ld	(r5),		r0		# load instruction into r0
-	mov	r0,		r1
-	mov	r0,		r2
+	deca	r5
+	st	r6,		(r5)
+
+	ld	0x4(r5),	r0		# load operation
+
+	deca	r5
+	st	r0,		(r5)
+	gpc	$0x6,		r6
+	j	get_op				# set up op registers
+	inca	r5
+
+	ld	$op_1,		r1
+	ld	(r1),		r1
+	ld	$regs,		r7
+	ld	(r7,r1,4),	r1		# load virtual rs
+	shl	$0x2,		r0		# r0 = p<<2 = o
+	add	r1,		r0		# r0 = o + rs
+
+	gpc	$0x6,		r6
+	j	to_addr				# get actual location in memory
+
+	ld	(r0),		r0		# load o(rs) into r0
+
+	ld	$op_2,		r2
+	ld	(r2),		r2
+	st	r0,		(r7,r2,4)	# store r0 into virtual rd
+
+	ld	(r5),		r6
+	inca	r5
+	j	(r6)
 
 
 
 # Load indexed
 # 2sid				ld	(rs,ri,4),	rd
 ld_i:
+	deca	r5
+	st	r6,		(r5)
+
+	ld	0x4(r5),	r0
+
+	deca	r5
+	st	r0,		(r5)
+	gpc	$0x6,		r6
+	j	get_op
+	inca	r5
+
+	gpc	$0x6,		r6
+	j	to_addr
+
+
+
+	ld	(r5),		r6
+	inca	r5
+	j	(r6)
 
 
 
@@ -180,9 +253,8 @@ table:
 	.long	j_dbl_i		# e
 	.long	sys		# f
 
-.pos	0x1fd0
+.pos	0x1fc0
 pc:	.long	0x00000000
-op_0:	.long	0x00000000
 op_1:	.long	0x00000000
 op_2:	.long	0x00000000
 op_imm:	.long	0x00000000
