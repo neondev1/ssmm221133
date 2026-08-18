@@ -154,7 +154,7 @@ ld_imm:
 	st	r6,		(r5)
 
 	gpc	$0x6,		r6
-	j	get_ext				# set up op_ext
+	j	get_ext
 
 	ld	$op_ext,	r0
 	ld	(r0),		r0
@@ -175,18 +175,18 @@ ld:
 	deca	r5
 	st	r6,		(r5)
 
-	ld	0x4(r5),	r0		# load operation
+	ld	0x4(r5),	r0
 
 	deca	r5
 	st	r0,		(r5)
 	gpc	$0x6,		r6
-	j	get_op				# set up op registers
+	j	get_op
 	inca	r5
 
 	ld	$op_1,		r1
 	ld	(r1),		r1
 	ld	$regs,		r7
-	ld	(r7,r1,4),	r1		# load virtual rs
+	ld	(r7,r1,4),	r1		# load virtual rs into r1
 	shl	$0x2,		r0		# r0 = p<<2 = o
 	add	r1,		r0		# r0 = o + rs
 
@@ -219,10 +219,22 @@ ld_i:
 	j	get_op
 	inca	r5
 
+	ld	$regs,		r7
+	ld	(r7,r0,4),	r0		# load virtual rs into r0
+	ld	$op_1,		r1
+	ld	(r1),		r1
+	ld	(r7,r1,4),	r1		# load virtual ri into r1
+	shl	$0x2,		r1		# r1 = ri<<2 = ri*4
+	add	r1,		r0		# add instead of using a load indexed instruction;
+
 	gpc	$0x6,		r6
-	j	to_addr
+	j	to_addr				# this is so that we can perform bounds checking
 
+	ld	(r0),		r0		# load (rs,ri,4) into r0
 
+	ld	$op_2,		r2
+	ld	(r2),		r2
+	st	r0,		(r7,r2,4)	# store r0 into virtual rd
 
 	ld	(r5),		r6
 	inca	r5
