@@ -10,6 +10,7 @@
 #
 # Still, very minimal bounds-checking measures are still in place, specifically ensuring
 # no addresses can overflow and cause the interpreter itself to be overwritten in memory.
+# Self-preservation instinct, basically :P
 #
 
 
@@ -134,26 +135,29 @@ get_op_imm:
 # Get the last 4 bytes of a 6-byte instruction and store it in op_ext
 get_op_ext:
 	ld	$pc,		r7
-	ld	(r7),		r0			# r0 = pc
+	ld	(r7),		r4
+	mov	r4,		r0			# r0 = pc
 	ld	$0x2,		r2
 	and	r0,		r2			# r2 = pc & 0b...10
 	beq	r2,		get_op_ext__aligned	# if 4-byte-aligned, already stored
-	ld	$vmem,		r1
-	add	r0,		r1			# r1 = instruction address
-	dec	r1
-	dec	r1
-	ld	0x0(r1),	r3
-	shl	$0x10,		r3			# first 2 bytes
-	ld	0x4(r1),	r4
-	shr	$0x10,		r4
-	ld	$0xffff,	r2
-	and	r2,		r4			# next 2 bytes
-	add	r4,		r3			# add instead of bitwise or is fine here
-	ld	$op_ext,	r2
-	st	r3,		(r2)			# store in op_ext
+
+	gpc	$0x6,		r6
+	j	to_addr					# r0 = actual address
+
+	dec	r0
+	dec	r0
+	ld	0x0(r0),	r2
+	shl	$0x10,		r2			# first 2 bytes
+	ld	0x4(r0),	r3
+	shr	$0x10,		r3
+	ld	$0xffff,	r1
+	and	r1,		r3			# next 2 bytes
+	add	r3,		r2			# add instead of bitwise or is fine here
+	ld	$op_ext,	r1
+	st	r2,		(r1)			# store in op_ext
 get_op_ext__aligned:
-	inca	r0					# update pc
-	st	r0,		(r7)
+	inca	r4					# update pc
+	st	r4,		(r7)
 	j	(r6)
 
 
