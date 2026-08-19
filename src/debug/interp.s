@@ -1,6 +1,9 @@
 # SM213 machine code interpreter
 # This module expects well-formed machine code (i.e. the output of sm2hex.s) as input.
 # As such, it performs minimal error checking (notably skipping register validity checks).
+# As a consequence of this, running data sections may produce unexpected behaviour.
+# This is an easy fix but I'm too lazy right now.
+
 
 .pos	0x0100
 start:
@@ -27,12 +30,12 @@ main__loop:
 	mov	r7,		r1			# r1 = pc
 	ld	$0x2,		r2
 	and	r1,		r2			# r2 = pc & 0b...10
-	bgt	r2,		pad			# if not 4-byte-aligned, pad
+	bgt	r2,		main__pad		# if not 4-byte-aligned, pad
 	ld	(r0),		r2			# load instruction into upper 2 bytes of r2
 	shr	$0x10,		r2			# extract upper 2 bytes
 	inc	r1
 	inc	r1
-	br	fetched
+	br	main__fetched
 main__pad:
 	dec	r0
 	dec	r0
@@ -45,6 +48,7 @@ main__pad:
 main__fetched:
 	ld	$0xffff,	r0
 	and	r0,		r2			# clean up junk in upper 2 bytes of r2
+	ld	$pc,		r7
 	st	r1,		(r7)			# store pc
 
 	mov	r2,		r1
@@ -57,7 +61,7 @@ main__fetched:
 	j	*(r0,r1,4)				# call procedure for specific opcode
 	inca	r5
 
-	br	loop
+	br	main__loop
 
 	ld	(r5),		r6
 	inca	r5
@@ -148,12 +152,12 @@ get_op_ext__aligned:
 
 # Load immediate
 # 0d--vvvvvvvv			ld	$v,		rd
-ld_imm:
+ins_ld_imm:
 	deca	r5
 	st	r6,		(r5)
 
 	gpc	$0x6,		r6
-	j	get_ext
+	j	get_op_ext
 
 	ld	$op_ext,	r0
 	ld	(r0),		r0
@@ -170,7 +174,7 @@ ld_imm:
 
 # Load base+offset
 # 1psd	(p=o>>2)		ld	o(rs),		rd
-ld:
+ins_ld:
 	deca	r5
 	st	r6,		(r5)
 
@@ -206,7 +210,7 @@ ld:
 
 # Load indexed
 # 2sid				ld	(rs,ri,4),	rd
-ld_i:
+ins_ld_i:
 	deca	r5
 	st	r6,		(r5)
 
@@ -243,7 +247,7 @@ ld_i:
 
 # Store base+offset
 # 3spd 	(p=o>>2)		st	rs,		o(rd)
-st:
+ins_st:
 	deca	r5
 	st	r6,		(r5)
 
@@ -256,7 +260,7 @@ st:
 	inca	r5
 
 	ld	$regs,		r7
-	ld	(r7,r0,4),	r2			# r2 = virtual rs
+	ld	(r7,r0,4),	r4			# r4 = virtual rs
 
 	ld	$op_1,		r0
 	ld	(r0),		r0			# r0 = p
@@ -269,7 +273,7 @@ st:
 	gpc	$0x6,		r6
 	j	to_addr
 
-	st	r2,		(r0)			# store r2 into o(rd)
+	st	r4,		(r0)			# store r4 into o(rd)
 
 	ld	(r5),		r6
 	inca	r5
@@ -279,7 +283,7 @@ st:
 
 # Store indexed
 # 4sdi				st	rs,		(rd,ri,4)
-st_i:
+ins_st_i:
 	deca	r5
 	st	r6,		(r5)
 
@@ -292,7 +296,7 @@ st_i:
 	inca	r5
 
 	ld	$regs,		r7
-	ld	(r7,r0,4),	r2			# r2 = virtual rs
+	ld	(r7,r0,4),	r4			# r4 = virtual rs
 
 	ld	$op_1,		r0
 	ld	(r0),		r0			# r0 = d
@@ -306,7 +310,7 @@ st_i:
 	gpc	$0x6,		r6
 	j	to_addr					# so that we can perform memory bounds checking
 
-	st	r2,		(r0)			# store r2 into (rd,ri,4)
+	st	r4,		(r0)			# store r4 into (rd,ri,4)
 
 	ld	(r5),		r6
 	inca	r5
@@ -314,37 +318,230 @@ st_i:
 
 
 
+# ALU instructions (excluding shifts)
+# 6.sd				...	rs,		rd
+# 6.-d				...	rd
+alu:
+	deca	r5
+	st	r6,		(r5)
+
+	ld	0x4(r5),	r0
+
+	deca	r5
+	st	r0,		(r5)
+	gpc	$0x6,		r6
+	j	get_op
+	inca	r5
+
+	ld	$regs,		r7
+	ld	$op_2,		r3
+	ld	(r3),		r3			# r3 = d
+	ld	(r7,r3,4),	r2			# r2 = virtual rd
+
+	ld	$alu_table,	r4
+	j	*(r3,r0,4)
+
+alu__mov:
+	ld	$op_1,		r1
+	ld	(r1),		r1			# r1 = s
+	ld	(r7,r1,4),	r1			# r1 = virtual rs
+	mov	r1,		r2			# r2 = r1
+	br	alu__end
+alu__add:
+	ld	$op_1,		r1
+	ld	(r1),		r1			# r1 = s
+	ld	(r7,r1,4),	r1			# r1 = virtual rs
+	add	r1,		r2			# r2 += r1
+	br	alu__end
+alu__and:
+	ld	$op_1,		r1
+	ld	(r1),		r1			# r1 = s
+	ld	(r7,r1,4),	r1			# r1 = virtual rs
+	and	r1,		r2			# r2 &= r1
+	br	alu__end
+alu__inc:
+	inc	r2					# r2++
+	br	alu__end
+alu__inca:
+	inca	r2					# r2 += 4
+	br	alu__end
+alu__dec:
+	dec	r2					# r2--
+	br	alu__end
+alu__deca:
+	deca	r2
+	br	alu__end				# r2 -= 4
+alu__not:
+	not	r2					# r2 = ~r2
+	br	alu__end
+
+alu__end:
+	st	r2,		(r7,r3,4)		# store result into rd
+
+	ld	(r5),		r6
+	inca	r5
+	j	(r6)
+
+
+
+# Bit shift (arithmetic immediate)
+# 7dss	(v=|s|)			sh[lr]	$v,		rd
+ins_sh:
+	deca	r5
+	st	r6,		(r5)
+
+	ld	0x4(r5),	r0
+
+	deca	r5
+	st	r0,		(r5)
+	gpc	$0x6,		r6
+	j	get_op_imm
+	inca	r5
+
+	ld	$regs,		r7
+	ld	(r7,r0,4),	r1			# r1 = virtual rd
+	ld	$op_imm,	r2
+	ld	(r2),		r2			# r2 = op_imm
+	shl	$0x18,		r2			# promote r2 to 4 bytes
+	shr	$0x18,		r2			# (with sign extension)
+	ld	$0x60,		r3
+	bgt	r2,		ins_sh__left
+
+ins_sh__right:
+	not	r2
+	inc	r2
+	and	r2,		r3			# r2 = r1 & 0b01100000
+	beq	r3,		ins_sh__right_4
+	shr	$0x20,		r1			# shifting by more than 32 bits
+	br	ins_sh__end
+ins_sh__right_4:
+	shl	$0x1b,		r2			# shift by 3 bytes + 3 bits
+	inc	r2
+	bgt	r2,		ins_sh__right_3		# use bgt so that we don't have to extract single bits
+	shr	$0x10,		r1
+ins_sh__right_3:
+	shl	$0x1,		r2
+	bgt	r2,		ins_sh__right_2
+	shr	$0x08,		r1
+ins_sh__right_2:
+	shl	$0x1,		r2
+	bgt	r2,		ins_sh__right_1
+	shr	$0x04,		r1
+ins_sh__right_1:
+	shl	$0x1,		r2
+	bgt	r2,		ins_sh__right_0
+	shr	$0x02,		r1
+ins_sh__right_0:
+	shl	$0x1,		r2
+	bgt	r2,		ins_sh__end
+	shr	$0x01,		r1
+	br	ins_sh__end
+
+ins_sh__left:
+	and	r2,		r3			# r2 = r1 & 0b01100000
+	beq	r3,		ins_sh__left_4
+	shl	$0x20,		r1			# shifting by more than 32 bits
+	br	ins_sh__end
+ins_sh__left_4:
+	shl	$0x1b,		r2			# shift by 3 bytes + 3 bits
+	inc	r2
+	bgt	r2,		ins_sh__left_3		# use bgt so that we don't have to extract single bits
+	shl	$0x10,		r1
+ins_sh__left_3:
+	shl	$0x1,		r2
+	bgt	r2,		ins_sh__left_2
+	shl	$0x08,		r1
+ins_sh__left_2:
+	shl	$0x1,		r2
+	bgt	r2,		ins_sh__left_1
+	shl	$0x04,		r1
+ins_sh__left_1:
+	shl	$0x1,		r2
+	bgt	r2,		ins_sh__left_0
+	shl	$0x02,		r1
+ins_sh__left_0:
+	shl	$0x1,		r2
+	bgt	r2,		ins_sh__end
+	shl	$0x01,		r1
+	br	ins_sh__end
+
+ins_sh__end:
+	st	r1,		(r7,r0,4)		# store result in rd
+
+	ld	(r5),		r6
+	inca	r5
+	j	(r6)
+
+
+
+ins_br:
+	halt
+ins_beq:
+	halt
+ins_bgt:
+	halt
+ins_jmp:
+	halt
+ins_jmp_ind:
+	halt
+ins_jmp_dbl:
+	halt
+ins_jmp_dbl_i:
+	halt
+ins_sys:
+	halt
+
+
+
 .pos	0x1f00
 stack_bottom:
 	.long	0x00000000
-halt:
-	halt			# for bad jumps
-table:
-	.long	ld_imm		# 0
-	.long	ld		# 1
-	.long	ld_i		# 2
-	.long	st		# 3
-	.long	st_i		# 4
-	.long	halt		# 5 (unused, maybe use for xchg later)
+bad:
+	halt			# filler entry for bad jumps
+	halt			# padding
+op_table:
+	.long	ins_ld_imm	# 0
+	.long	ins_ld		# 1
+	.long	ins_ld_i	# 2
+	.long	ins_st		# 3
+	.long	ins_st_i	# 4
+	.long	bad		# 5 (unused, maybe use for xchg in the future)
 	.long	alu		# 6
-	.long	sh		# 7
-	.long	br		# 8
-	.long	beq		# 9
-	.long	bgt		# a
-	.long	jmp		# b
-	.long	j_ind		# c
-	.long	j_dbl		# d
-	.long	j_dbl_i		# e
-	.long	sys		# f
+	.long	ins_sh		# 7
+	.long	ins_br		# 8
+	.long	ins_beq		# 9
+	.long	ins_bgt		# a
+	.long	ins_jmp		# b
+	.long	ins_jmp_ind	# c
+	.long	ins_jmp_dbl	# d
+	.long	ins_jmp_dbl_i	# e
+	.long	ins_sys		# f
+alu_table:
+	.long	alu__mov	# 0
+	.long	alu__add	# 1
+	.long	alu__and	# 2
+	.long	alu__inc	# 3
+	.long	alu__inca	# 4
+	.long	alu__dec	# 5
+	.long	alu__deca	# 6
+	.long	alu__not	# 7
+	.long	bad
+	.long	bad
+	.long	bad
+	.long	bad
+	.long	bad
+	.long	bad
+	.long	bad
+	.long	bad
 
-.pos	0x1fc0
+.pos	0x1fa0
 pc:	.long	0x00000000
 op_1:	.long	0x00000000
 op_2:	.long	0x00000000
 op_imm:	.long	0x00000000
 op_ext:	.long	0x00000000
 
-.pos	0x1fe0
+.pos	0x1fc0
 regs:
 	.long	0x00000000	# r0
 	.long	0x00000000	# r1
@@ -354,6 +551,22 @@ regs:
 	.long	0x00000000	# r5
 	.long	0x00000000	# r6
 	.long	0x00000000	# r7
+	.long	0xffffffff	# o
+	.long	0xffffffff	# v
+	.long	0xffffffff	# e
+	.long	0xffffffff	# r
+	.long	0xffffffff	# f
+	.long	0xffffffff	# l
+	.long	0xffffffff	# o
+	.long	0xffffffff	# w
 
 .pos	0x2000
-vmem:	.long	0x00000000
+vmem:
+	.long	0x00000000
+	.long	0x00000000
+	.long	0x00000000
+	.long	0x00000000
+	.long	0x00000000
+	.long	0x00000000
+	.long	0x00000000
+	.long	0x00000000
