@@ -19,50 +19,49 @@ main:
 main__loop:
 	ld	$pc,		r7
 	ld	(r7),		r7
-	mov	r7,		r0		# r0 = pc
+	mov	r7,		r0			# r0 = pc
 
 	gpc	$0x6,		r6
-	j	to_addr				# r0 = actual instruction address
+	j	to_addr					# r0 = actual instruction address
 
-	mov	r0,		r1		# r1 = actual instruction address
-	mov	r7,		r0		# r0 = pc
+	mov	r7,		r1			# r1 = pc
 	ld	$0x2,		r2
-	and	r0,		r2		# r2 = pc & 0b...10
-	bgt	r2,		pad		# if not 4-byte-aligned, pad
-	ld	(r1),		r2		# load instruction into upper 2 bytes of r2
-	shr	$0x10,		r2		# extract upper 2 bytes
-	inc	r0
-	inc	r0
+	and	r1,		r2			# r2 = pc & 0b...10
+	bgt	r2,		pad			# if not 4-byte-aligned, pad
+	ld	(r0),		r2			# load instruction into upper 2 bytes of r2
+	shr	$0x10,		r2			# extract upper 2 bytes
+	inc	r1
+	inc	r1
 	br	fetched
 main__pad:
-	dec	r1
-	dec	r1
-	ld	0x0(r1),	r2		# load instruction into lower 2 bytes of r2
-	ld	0x4(r1),	r3		# load ins_op_ext as it is convenient here
+	dec	r0
+	dec	r0
+	ld	0x0(r0),	r2			# load instruction into lower 2 bytes of r2
+	ld	0x4(r0),	r3			# load ins_op_ext as it is convenient here
 	ld	$op_ext,	r4
-	st	r3,		(r4)		# store in a global for now
-	inc	r0
-	inc	r0
+	st	r3,		(r4)			# store in a global for now
+	inc	r1
+	inc	r1
 main__fetched:
-	ld	$0xffff,	r1
-	and	r1,		r2		# clean up junk in upper 2 bytes of r2
-	st	r0,		(r7)		# store pc
+	ld	$0xffff,	r0
+	and	r0,		r2			# clean up junk in upper 2 bytes of r2
+	st	r1,		(r7)			# store pc
 
 	mov	r2,		r1
-	shr	$0xc,		r1		# r1 = opcode
+	shr	$0xc,		r1			# r1 = opcode
 
 	deca	r5
-	st	r2,		(r5)		# pass instruction
-	ld	$table,		r0
+	st	r2,		(r5)			# pass instruction
+	ld	$op_table,	r0
 	gpc	$0x2,		r6
-	j	*(r0,r1,4)			# call procedure for specific opcode
+	j	*(r0,r1,4)				# call procedure for specific opcode
 	inca	r5
 
 	br	loop
 
 	ld	(r5),		r6
 	inca	r5
-	j	(r6)				# return, this will probably never happen
+	j	(r6)					# return, this will probably never happen
 
 
 
@@ -70,15 +69,15 @@ main__fetched:
 # halt if this results in an overflow
 to_addr:
 	mov	r0,		r1
-	shr	$0x1f,		r1		# extend sign bit, discard other bits
+	shr	$0x1f,		r1			# extend sign bit, discard other bits
 	ld	$vmem,		r2
 	add	r2,		r0
-	beq	r1,		to_addr__safe	# if unset, no chance of overflow
+	beq	r1,		to_addr__safe		# if unset, no chance of overflow
 	mov	r0,		r1
-	not	r1				# invert address
-	bgt	r1,		to_addr__safe	# if original high bit set, no overflow
+	not	r1					# invert address
+	bgt	r1,		to_addr__safe		# if original high bit set, no overflow
 	beq	r1,		to_addr__safe
-	halt					# halt if overflow occurred
+	halt						# halt if overflow occurred
 to_addr__safe:
 	j	(r6)
 
@@ -92,30 +91,30 @@ get_op:
 	mov	r0,		r2
 	ld	$0xf,		r3
 	shr	$0x8,		r0
+	and	r3,		r0			# r0 = op_0
 	shr	$0x4,		r1
-	and	r3,		r0
-	and	r3,		r1
-	and	r3,		r2
+	and	r3,		r1			# r1 = op_1
+	and	r3,		r2			# r2 = op_2
 	ld	$op_1,		r3
-	st	r1,		(r3)
+	st	r1,		(r3)			# store op_1
 	ld	$op_2,		r3
-	st	r2,		(r3)
+	st	r2,		(r3)			# store op_2
 	j	(r6)
 
 
 
-# Get the second nibble and last byte of a 2-byte instruction and store the bytr in op_imm,
+# Get the second nibble and last byte of a 2-byte instruction and store the byte in op_imm,
 # given the full instruction as an argument; returns the nibble in r0
 get_op_imm:
 	ld	(r5),		r0
 	mov	r0,		r1
 	ld	$0xff,		r2
-	shr	$0x1,		r0
-	and	r2,		r0
-	shr	$0x1,		r0
-	and	r2,		r1
+	shr	$0x4,		r0
+	and	r2,		r0			# op_0 in left 4 bits of r0
+	shr	$0x4,		r0			# r0 = op_0
+	and	r2,		r1			# r1 = op_imm
 	ld	$op_imm,	r2
-	st	r1,		(r2)
+	st	r1,		(r2)			# store op_imm
 	j	(r6)
 
 
@@ -123,25 +122,25 @@ get_op_imm:
 # Get the last 4 bytes of a 6-byte instruction and store it in op_ext
 get_op_ext:
 	ld	$pc,		r7
-	ld	(r7),		r0
+	ld	(r7),		r0			# r0 = pc
 	ld	$0x2,		r2
-	and	r0,		r2		# r2 = pc & 0b...10
-	beq	r2,		aligned		# if 4-byte-aligned, already stored
-	ld	$mem,		r1
-	add	r0,		r1		# r1 = instruction address
+	and	r0,		r2			# r2 = pc & 0b...10
+	beq	r2,		get_op_ext__aligned	# if 4-byte-aligned, already stored
+	ld	$vmem,		r1
+	add	r0,		r1			# r1 = instruction address
 	dec	r1
 	dec	r1
 	ld	0x0(r1),	r3
-	shl	$0x10,		r3		# first 2 bytes
+	shl	$0x10,		r3			# first 2 bytes
 	ld	0x4(r1),	r4
 	shr	$0x10,		r4
 	ld	$0xffff,	r2
-	and	r2,		r4		# next 2 bytes
-	add	r4,		r3		# add instead of bitwise or is fine here
+	and	r2,		r4			# next 2 bytes
+	add	r4,		r3			# add instead of bitwise or is fine here
 	ld	$op_ext,	r2
-	st	r3,		(r2)		# store in op_ext
+	st	r3,		(r2)			# store in op_ext
 get_op_ext__aligned:
-	inca	r0				# update pc
+	inca	r0					# update pc
 	st	r0,		(r7)
 	j	(r6)
 
@@ -159,9 +158,9 @@ ld_imm:
 	ld	$op_ext,	r0
 	ld	(r0),		r0
 	ld	$regs,		r1
-	ld	0x4(r5),	r2		# load instruction into r2
-	shr	$0x8,		r2		# r2 = d (destination register #)
-	st	r0,		(r1,r2,4)	# store ins_op_ext into rd
+	ld	0x4(r5),	r2			# load instruction into r2
+	shr	$0x8,		r2			# r2 = d
+	st	r0,		(r1,r2,4)		# store ins_op_ext into virtual rd
 
 	ld	(r5),		r6
 	inca	r5
@@ -184,20 +183,20 @@ ld:
 	inca	r5
 
 	ld	$op_1,		r1
-	ld	(r1),		r1
+	ld	(r1),		r1			# r1 = s
 	ld	$regs,		r7
-	ld	(r7,r1,4),	r1		# load virtual rs into r1
-	shl	$0x2,		r0		# r0 = p<<2 = o
-	add	r1,		r0		# r0 = o + rs
+	ld	(r7,r1,4),	r1			# r1 = virtual rs
+	shl	$0x2,		r0			# r0 = p<<2 = o
+	add	r1,		r0			# r0 = o + rs
 
 	gpc	$0x6,		r6
-	j	to_addr				# get actual location in memory
+	j	to_addr					# get actual location in memory
 
-	ld	(r0),		r0		# load o(rs) into r0
+	ld	(r0),		r0			# load o(rs) into r0
 
 	ld	$op_2,		r2
-	ld	(r2),		r2
-	st	r0,		(r7,r2,4)	# store r0 into virtual rd
+	ld	(r2),		r2			# r2 = d
+	st	r0,		(r7,r2,4)		# store r0 into virtual rd
 
 	ld	(r5),		r6
 	inca	r5
@@ -220,21 +219,94 @@ ld_i:
 	inca	r5
 
 	ld	$regs,		r7
-	ld	(r7,r0,4),	r0		# load virtual rs into r0
+	ld	(r7,r0,4),	r0			# r0 = virtual rs
 	ld	$op_1,		r1
-	ld	(r1),		r1
-	ld	(r7,r1,4),	r1		# load virtual ri into r1
-	shl	$0x2,		r1		# r1 = ri<<2 = ri*4
-	add	r1,		r0		# add instead of using a load indexed instruction;
+	ld	(r1),		r1			# r1 = i
+	ld	(r7,r1,4),	r1			# r1 = virtual ri
+	shl	$0x2,		r1			# r1 = ri<<2 = ri*4
+	add	r1,		r0			# add instead of using a load indexed instruction;
 
 	gpc	$0x6,		r6
-	j	to_addr				# this is so that we can perform bounds checking
+	j	to_addr					# this is so that we can perform memory bounds checking
 
-	ld	(r0),		r0		# load (rs,ri,4) into r0
+	ld	(r0),		r0			# load (rs,ri,4) into r0
 
 	ld	$op_2,		r2
-	ld	(r2),		r2
-	st	r0,		(r7,r2,4)	# store r0 into virtual rd
+	ld	(r2),		r2			# r2 = d
+	st	r0,		(r7,r2,4)		# store r0 into virtual rd
+
+	ld	(r5),		r6
+	inca	r5
+	j	(r6)
+
+
+
+# Store base+offset
+# 3spd 	(p=o>>2)		st	rs,		o(rd)
+st:
+	deca	r5
+	st	r6,		(r5)
+
+	ld	0x4(r5),	r0
+
+	deca	r5
+	st	r0,		(r5)
+	gpc	$0x6,		r6
+	j	get_op
+	inca	r5
+
+	ld	$regs,		r7
+	ld	(r7,r0,4),	r2			# r2 = virtual rs
+
+	ld	$op_1,		r0
+	ld	(r0),		r0			# r0 = p
+	shl	$0x2,		r0			# r0 = p<<2 = o
+	ld	$op_2,		r1
+	ld	(r1),		r1			# r1 = d
+	ld	(r7,r1,4),	r1			# r1 = virtual rd
+	add	r1,		r0			# r0 = o + rd
+
+	gpc	$0x6,		r6
+	j	to_addr
+
+	st	r2,		(r0)			# store r2 into o(rd)
+
+	ld	(r5),		r6
+	inca	r5
+	j	(r6)
+
+
+
+# Store indexed
+# 4sdi				st	rs,		(rd,ri,4)
+st_i:
+	deca	r5
+	st	r6,		(r5)
+
+	ld	0x4(r5),	r0
+
+	deca	r5
+	st	r0,		(r5)
+	gpc	$0x6,		r6
+	j	get_op
+	inca	r5
+
+	ld	$regs,		r7
+	ld	(r7,r0,4),	r2			# r2 = virtual rs
+
+	ld	$op_1,		r0
+	ld	(r0),		r0			# r0 = d
+	ld	(r7,r0,4),	r0			# r0 = virtual rd
+	ld	$op_2,		r1
+	ld	(r1),		r1			# r1 = i
+	ld	(r7,r1,4),	r1			# r1 = virtual ri
+	shl	$0x2,		r1			# r1 = i<<2 = i*4
+	add	r1,		r0			# once again, add instead of directly using st
+
+	gpc	$0x6,		r6
+	j	to_addr					# so that we can perform memory bounds checking
+
+	st	r2,		(r0)			# store r2 into (rd,ri,4)
 
 	ld	(r5),		r6
 	inca	r5
