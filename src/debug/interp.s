@@ -421,7 +421,7 @@ ins_sh:
 	ld	$regs,		r7
 	ld	(r7,r0,4),	r1			# r1 = virtual rd
 	ld	$op_imm,	r2
-	ld	(r2),		r2			# r2 = op_imm = s (1 byte)
+	ld	(r2),		r2			# r2 = s (1 byte)
 	shl	$0x18,		r2
 	shr	$0x18,		r2			# promote/sign extend r2
 	ld	$0x60,		r3
@@ -496,7 +496,7 @@ ins_sh__end:
 
 # Branches by an offset given as an argument on the stack
 branch:
-	ld	(r5),		r0			# r0 = op_imm = p (1 byte)
+	ld	(r5),		r0			# r0 = p (1 byte)
 	shl	$0x18,		r0
 	shr	$0x17,		r0			# promote/sign extend r0; r0 = p<<1 = p*2
 	ld	$pc,		r7
@@ -522,7 +522,7 @@ ins_br:
 	inca	r5
 
 	ld	$op_imm,	r0
-	ld	(r0),		r0			# r0 = op_imm = p
+	ld	(r0),		r0			# r0 = p
 
 	deca	r5
 	st	r0,		(r5)			# pass p on the stack
@@ -557,7 +557,7 @@ ins_beq:
 
 ins_beq__branch:
 	ld	$op_imm,	r0
-	ld	(r0),		r0			# r0 = op_imm = p
+	ld	(r0),		r0			# r0 = p
 
 	deca	r5
 	st	r0,		(r5)			# pass p on the stack
@@ -593,7 +593,7 @@ ins_bgt:
 
 ins_bgt__branch:
 	ld	$op_imm,	r0
-	ld	(r0),		r0			# r0 = op_imm = p
+	ld	(r0),		r0			# r0 = p
 
 	deca	r5
 	st	r0,		(r5)			# pass p on the stack
@@ -618,7 +618,7 @@ ins_jmp:
 	j	get_op_ext
 
 	ld	$op_ext,	r0
-	ld	(r0),		r0			# r0 = op_ext = a
+	ld	(r0),		r0			# r0 = a
 	ld	$pc,		r7
 	st	r0,		(r7)			# pc = a
 
@@ -628,12 +628,101 @@ ins_jmp:
 
 
 
+# Jump, indirect
+# Cdpp	(p=o>>1)		j	o(rd)
 ins_jmp_ind:
-	halt
+	deca	r5
+	st	r6,		(r5)
+
+	ld	0x4(r5),	r0
+
+	deca	r5
+	st	r0,		(r5)
+	gpc	$0x6,		r6
+	j	get_op_imm
+	inca	r5
+
+	ld	$regs,		r7
+	ld	(r7,r0,4),	r0			# r0 = virtual rd
+	ld	$op_imm,	r1
+	ld	(r1),		r1			# r1 = p
+	shl	$0x1,		r1			# r1 = p<<1 = o
+	add	r1,		r0			# r0 = o + rd
+	ld	$pc,		r7
+	st	r0,		(r7)			# pc = o + rd
+
+	ld	(r5),		r6
+	inca	r5
+	j	(r6)
+
+
+
+# Jump, double indirect base+offset
+# Ddpp	(p=o>>2)		j	*o(rd)
 ins_jmp_dbl:
-	halt
+	deca	r5
+	st	r6,		(r5)
+
+	ld	0x4(r5),	r0
+
+	deca	r5
+	st	r0,		(r5)
+	gpc	$0x6,		r6
+	j	get_op_imm
+	inca	r5
+
+	ld	$regs,		r7
+	ld	(r7,r0,4),	r0			# r0 = virtual rd
+	ld	$op_imm,	r1
+	ld	(r1),		r1			# r1 = p
+	shl	$0x2,		r1			# r1 = p<<2 = o
+	add	r1,		r0			# r0 = o + rd
+
+	gpc	$0x6,		r6
+	j	to_addr					# get actual address
+
+	ld	(r0),		r0			# r0 = m[o + rd]
+	ld	$pc,		r7
+	st	r0,		(r7)			# pc = m[o + rd]
+
+	ld	(r5),		r6
+	inca	r5
+	j	(r6)
+
+
+
+# Jump, double indirect indexed
+# Edi-				j	*o(rd,ri,4)
 ins_jmp_dbl_i:
-	halt
+	deca	r5
+	st	r6,		(r5)
+
+	ld	0x4(r5),	r0
+
+	deca	r5
+	st	r0,		(r5)
+	gpc	$0x6,		r6
+	j	get_op
+	inca	r5
+
+	ld	$regs,		r7
+	ld	(r7,r0,4),	r0			# r0 = virtual rd
+	ld	$op_1,		r1
+	ld	(r1),		r1			# r1 = i
+	ld	(r7,r1,4),	r1			# r1 = virtual ri
+	shl	$0x2,		r1			# r1 = ri<<2 = ri*4
+	add	r1,		r0			# r0 = rd + ri*4
+
+	gpc	$0x6,		r6
+	j	to_addr					# get actual address
+
+	ld	(r0),		r0			# r0 = m[rd + ri*4] = rd[ri]
+	ld	$pc,		r7
+	st	r0,		(r7)			# pc = rd[ri]
+
+	ld	(r5),		r6
+	inca	r5
+	j	(r6)
 
 
 
