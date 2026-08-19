@@ -1,8 +1,16 @@
 # SM213 machine code interpreter
+#
 # This module expects well-formed machine code (i.e. the output of sm2hex.s) as input.
 # As such, it performs minimal error checking (notably skipping register validity checks).
-# As a consequence of this, running data sections may produce unexpected behaviour.
-# This is an easy fix but I'm too lazy right now.
+# As a consequence of this, running data sections may produce unexpected behaviour if they
+# contain malformed machine code. Specifically, it may either halt or nop depending on the
+# opcode of an instruction. This is an easy fix but I'm too lazy right now (low priority).
+# If you're running a data section you've probably screwed up and/or are running malicious
+# code anyway, so I don't really consider this a major concern.
+#
+# Still, very minimal bounds-checking measures are still in place, specifically ensuring
+# no addresses can overflow and cause the interpreter itself to be overwritten in memory.
+#
 
 
 .pos	0x0100
@@ -55,7 +63,7 @@ main__fetched:
 	shr	$0xc,		r1			# r1 = opcode
 
 	deca	r5
-	st	r2,		(r5)			# pass instruction
+	st	r2,		(r5)			# pass instruction on the stack
 	ld	$op_table,	r0
 	gpc	$0x2,		r6
 	j	*(r0,r1,4)				# call procedure for specific opcode
@@ -88,7 +96,7 @@ to_addr__safe:
 
 
 # Get the last 3 nibbles of a 2-byte instruction and store the last two in op_1, op_2,
-# given the full instruction as an argument; returns the first nibble read in r0
+# given the full instruction as an argument on the stack; returns the first nibble read in r0
 get_op:
 	ld	(r5),		r0
 	mov	r0,		r1
@@ -108,7 +116,7 @@ get_op:
 
 
 # Get the second nibble and last byte of a 2-byte instruction and store the byte in op_imm,
-# given the full instruction as an argument; returns the nibble in r0
+# given the full instruction as an argument on the stack; returns the nibble in r0
 get_op_imm:
 	ld	(r5),		r0
 	mov	r0,		r1
@@ -321,6 +329,7 @@ ins_st_i:
 # ALU instructions (excluding shifts)
 # 6.sd				...	rs,		rd
 # 6.-d				...	rd
+# 6Fpd	(p=o>>1)		gpc	$o,		rd
 alu:
 	deca	r5
 	st	r6,		(r5)
@@ -339,7 +348,7 @@ alu:
 	ld	(r7,r3,4),	r2			# r2 = virtual rd
 
 	ld	$alu_table,	r4
-	j	*(r3,r0,4)
+	j	*(r4,r0,4)
 
 alu__mov:
 	ld	$op_1,		r1
@@ -374,6 +383,13 @@ alu__deca:
 alu__not:
 	not	r2					# r2 = ~r2
 	br	alu__end
+alu__gpc:
+	ld	$op_1,		r1
+	ld	(r1),		r1			# r1 = p
+	shl	$0x1,		r1			# r1 = p<<1 = o
+	ld	$pc,		r2
+	ld	(r2),		r2			# r2 = pc
+	add	r1,		r2			# r2 = o + pc
 
 alu__end:
 	st	r2,		(r7,r3,4)		# store result into rd
@@ -384,7 +400,7 @@ alu__end:
 
 
 
-# Bit shift (arithmetic immediate)
+# Bit shift, arithmetic immediate
 # 7dss	(v=|s|)			sh[lr]	$v,		rd
 ins_sh:
 	deca	r5
@@ -401,16 +417,16 @@ ins_sh:
 	ld	$regs,		r7
 	ld	(r7,r0,4),	r1			# r1 = virtual rd
 	ld	$op_imm,	r2
-	ld	(r2),		r2			# r2 = op_imm
-	shl	$0x18,		r2			# promote r2 to 4 bytes
-	shr	$0x18,		r2			# (with sign extension)
+	ld	(r2),		r2			# r2 = op_imm = s (1 byte)
+	shl	$0x18,		r2
+	shr	$0x18,		r2			# promote/sign extend r2
 	ld	$0x60,		r3
 	bgt	r2,		ins_sh__left
 
 ins_sh__right:
 	not	r2
-	inc	r2
-	and	r2,		r3			# r2 = r1 & 0b01100000
+	inc	r2					# r2 = -s = v
+	and	r2,		r3			# r3 = r2 & 0b01100000
 	beq	r3,		ins_sh__right_4
 	shr	$0x20,		r1			# shifting by more than 32 bits
 	br	ins_sh__end
@@ -437,8 +453,8 @@ ins_sh__right_0:
 	shr	$0x01,		r1
 	br	ins_sh__end
 
-ins_sh__left:
-	and	r2,		r3			# r2 = r1 & 0b01100000
+ins_sh__left:						# (r2 = s = v already)
+	and	r2,		r3			# r3 = r2 & 0b01100000
 	beq	r3,		ins_sh__left_4
 	shl	$0x20,		r1			# shifting by more than 32 bits
 	br	ins_sh__end
@@ -474,22 +490,219 @@ ins_sh__end:
 
 
 
+# Branches by an offset given as an argument on the stack
+branch:
+	ld	(r5),		r0			# r0 = op_imm = p (1 byte)
+	shl	$0x18,		r0
+	shr	$0x17,		r0			# promote/sign extend r0; r0 = p<<1 = p*2
+	ld	$pc,		r7
+	ld	(r7),		r1			# r1 = pc
+	add	r0,		r1			# r1 = pc + p*2 = a
+	st	r1,		(r7)			# pc = a
+	j	(r6)
+
+
+
+# Branch, unconditional
+# 8-pp	(a=pc+p*2)		br	a
 ins_br:
-	halt
+	deca	r5
+	st	r6,		(r5)
+
+	ld	0x4(r5),	r0
+
+	deca	r5
+	st	r0,		(r5)
+	gpc	$0x6,		r6
+	j	get_op_imm
+	inca	r5
+
+	ld	$op_imm,	r0
+	ld	(r0),		r0			# r0 = op_imm = p
+
+	deca	r5
+	st	r0,		(r5)			# pass p on the stack
+	gpc	$0x6,		r6
+	j	branch
+	inca	r5
+
+	ld	(r5),		r6
+	inca	r5
+	j	(r6)
+
+
+
+# Branch if equal to zero
+# 9rpp	(a=pc+p*2)		beq	rr,		a
 ins_beq:
-	halt
+	deca	r5
+	st	r6,		(r5)
+
+	ld	0x4(r5),	r0
+
+	deca	r5
+	st	r0,		(r5)
+	gpc	$0x6,		r6
+	j	get_op_imm
+	inca	r5
+
+	ld	$regs,		r7
+	ld	(r7,r0,4),	r0			# r0 = virtual rr
+	beq	r0,		ins_beq__branch		# branch if rr == 0
+	br	ins_beq__end
+
+ins_beq__branch:
+	ld	$op_imm,	r0
+	ld	(r0),		r0			# r0 = op_imm = p
+
+	deca	r5
+	st	r0,		(r5)			# pass p on the stack
+	gpc	$0x6,		r6
+	j	branch
+	inca	r5
+
+ins_beq__end:
+	ld	(r5),		r6
+	inca	r5
+	j	(r6)
+
+
+
+# Branch if greater than zero
+# Arpp	(a=pc+p*2)		bgt	rr,		a
 ins_bgt:
-	halt
+	deca	r5
+	st	r6,		(r5)
+
+	ld	0x4(r5),	r0
+
+	deca	r5
+	st	r0,		(r5)
+	gpc	$0x6,		r6
+	j	get_op_imm
+	inca	r5
+
+	ld	$regs,		r7
+	ld	(r7,r0,4),	r0			# r0 = virtual rr
+	bgt	r0,		ins_bgt__branch		# branch if rr == 0
+	br	ins_bgt__end
+
+ins_bgt__branch:
+	ld	$op_imm,	r0
+	ld	(r0),		r0			# r0 = op_imm = p
+
+	deca	r5
+	st	r0,		(r5)			# pass p on the stack
+	gpc	$0x6,		r6
+	j	branch
+	inca	r5
+
+ins_bgt__end:
+	ld	(r5),		r6
+	inca	r5
+	j	(r6)
+
+
+
+# Jump, direct
+# B---aaaaaaaaa			j	a
 ins_jmp:
-	halt
+	deca	r5
+	st	r6,		(r5)
+
+	gpc	$0x6,		r6
+	j	get_op_ext
+
+	ld	$op_ext,	r0
+	ld	(r0),		r0			# r0 = op_ext = a
+	ld	$pc,		r7
+	st	r0,		(r7)			# pc = a
+
+	ld	(r5),		r6
+	inca	r5
+	j	(r6)
+
+
+
 ins_jmp_ind:
 	halt
 ins_jmp_dbl:
 	halt
 ins_jmp_dbl_i:
 	halt
+
+
+
+# Special (halt, syscall, nop)
+# F0--				halt
+# F1nn				sys	$n
+# FF--				nop
 ins_sys:
-	halt
+	deca	r5
+	st	r6,		(r5)
+
+	ld	0x4(r5),	r0
+
+	deca	r5
+	st	r0,		(r5)
+	gpc	$0x6,		r6
+	j	get_op_imm
+	inca	r5
+
+	beq	r0,		ins_sys__halt		# op_0 == 0
+	dec	r0
+	beq	r0,		ins_sys__sys		# op_0 == 1
+	inc	r0
+	inc	r0
+	shl	$0x1f,		r0			# r0 = (op_0 + 1) << 31
+	beq	r0,		ins_sys__end		# op_0 == f
+ins_sys__halt:
+	halt						# halt instruction or bad machine code
+
+ins_sys__sys:
+	ld	$regs,		r7
+	ld	$op_imm,	r1
+	ld	(r1),		r1			# r0 = op_imm = n
+	deca	r1
+	bgt	r1,		bad			# if n > 4, not in jump table
+	inca	r1
+	ld	$sys_table,	r0
+	j	*(r0,r1,4)
+
+ins_sys__io:
+	mov	r1,		r4
+	ld	0x4(r7),	r0			# r0 = virtual r1 = buffer
+
+	gpc	$0x6,		r6
+	j	to_addr
+
+	mov	r0,		r1			# r1 = actual address of buffer
+	ld	0x0(r7),	r0			# r0 = virtual r0 = fd
+	ld	0x8(r7),	r2			# r2 = virtual r2 = size
+	beq	r4,		ins_sys__read		# if n == 0, read, otherwise write
+ins_sys__write:
+	sys	$0x1
+	br	ins_sys__sys_end
+ins_sys__read:
+	sys	$0x0
+	br	ins_sys__sys_end
+
+ins_sys__exec:
+	ld	0x0(r7),	r0			# r0 = virtual r0 = buffer
+
+	gpc	$0x6,		r6
+	j	to_addr					# r0 = actual address of buffer
+
+	ld	0x4(r7),	r1			# r1 = virtual r1 = size
+	sys	$0x2
+
+ins_sys__sys_end:
+	st	r0,		(r7)			# store syscall return value in virtual r0
+
+ins_sys__end:
+	ld	(r5),		r6
+	inca	r5
+	j	(r6)
 
 
 
@@ -531,6 +744,12 @@ alu_table:
 	.long	bad
 	.long	bad
 	.long	bad
+	.long	bad
+	.long	alu__gpc	# f
+sys_table:
+	.long	ins_sys__io	# 0
+	.long	ins_sys__io	# 1
+	.long	ins_sys__exec	# 2
 	.long	bad
 	.long	bad
 
